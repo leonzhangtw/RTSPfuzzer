@@ -49,6 +49,7 @@ ex.AAAAAAAAAAAA)，目前都採用MSFPATTERN產生Pattern。
 
 12.RTSP認證相關資訊
 Authorization : IPCam是否有帳號認證(Authorization Digest)，填Y/N，選擇Y時必須確認下列五項資訊設定正確。
+
 USERNAME : 帳號
 PASSWORD : 密碼
 REALM : RTSP(選填，可先側錄正常封包觀察是否需填入指定值)
