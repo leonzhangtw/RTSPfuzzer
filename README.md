@@ -51,9 +51,13 @@ ex.AAAAAAAAAAAA)，目前都採用MSFPATTERN產生Pattern。
 Authorization : IPCam是否有帳號認證(Authorization Digest)，填Y/N，選擇Y時必須確認下列五項資訊設定正確。
 
 USERNAME : 帳號
+
 PASSWORD : 密碼
+
 REALM : RTSP(選填，可先側錄正常封包觀察是否需填入指定值)
+
 NONCE : 0000040dY892418598785d2a2304a74adf22f6098f2792(通常會隨機產生，Fuzz可自己選擇要設定什麼。)
+
 TARGETURL : RTSP資源的URL
 
 13.DEBUG參數設Y時，會顯示更多Payload的資訊，可以幫助找到有問題的Payload
