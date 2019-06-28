@@ -25,16 +25,28 @@ Real Time Streaming Protocol(RTSP) Fuzzer Tools
 # Usage
 ## Step1:設定參數檔rtsp.conf
 1.RHOST改成設備IP address
+
 2.RPORT為RTSP的服務PORT。(RTSP協定預設為554)
+
 3.STARTSIZE為模糊測試開始時最初所塞的字元長度
+
 4.ENDSIZE為模糊測試所塞的字元長度的最大長度
+
 5.STEPSIZE為模糊測試過程中每次遞增的字元數量(目前採用Random、此項設定目前不使用)
+
 6.JUNK和DELAY欄位使用預設即可。
+
 7.SERVERPATH為RTSP的uri路徑，例如URL為=>RTSP://192.168.1.56/Stream0，Stream0就是我們的SERVERPATH參數
+
 8.SESSION欄位若是設備需要帳號密碼驗證時，必須給予的參數，否則Fuzzing過程中Server會一直回應401 Unauthorized!
-9.MSFPATTERN保持預設為ON不需更改，此模式為讓模糊測試執行時會隨機產生payload，就不會只產生不同數量的JUNK字元(ex.AAAAAAAAAAAA)
+
+9.MSFPATTERN保持預設為ON不需更改，此模式為讓模糊測試執行時會隨機產生payload，就不會只產生不同數量的JUNK字元(
+ex.AAAAAAAAAAAA)，目前都採用MSFPATTERN產生Pattern。
+
 10.STOPAFTER為模糊測試的測試筆數，目前規範門檻為10萬筆。
-11.TYPE根據服務設定TCP或UDP
+
+11.TYPE請根據服務設定TCP或UDP
+
 12.RTSP認證相關資訊
 Authorization : IPCam是否有帳號認證(Authorization Digest)，填Y/N，選擇Y時必須確認下列五項資訊設定正確。
 USERNAME : 帳號
@@ -42,6 +54,7 @@ PASSWORD : 密碼
 REALM : RTSP(選填，可先側錄正常封包觀察是否需填入指定值)
 NONCE : 0000040dY892418598785d2a2304a74adf22f6098f2792(通常會隨機產生，Fuzz可自己選擇要設定什麼。)
 TARGETURL : RTSP資源的URL
+
 13.DEBUG參數設Y時，會顯示更多Payload的資訊，可以幫助找到有問題的Payload
 
 
