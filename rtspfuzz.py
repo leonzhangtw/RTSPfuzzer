@@ -3,35 +3,52 @@
 
 import socket
 import time
-import sys
+import os,sys
+import csv
 from ConfigParser import ConfigParser
 from itertools import islice, product, chain
 import string
+import hashlib
+from Payload import Payload
+from copy import deepcopy
+from random import *
+import datetime
+
 
 END = '\r\n'
 TEST_CASE_ID = 0
+OUTPUT_DATA = []
 
+# send packet ,[!] Currently, no longer use this function
 def go(data):
-    global  TEST_CASE_ID
+    global TEST_CASE_ID
+    print("Payload : \n" + data)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         if SERVICETYPE == 'TCP':
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((RHOST, RPORT))
-            print("Start Sent Test Case number: %d to the Target(%s,TCP: %d)!! " %(TEST_CASE_ID,RHOST,RPORT))
+            print("Start Sent Test Case number: %d to the Target(%s,TCP: %d)!! " % (TEST_CASE_ID, RHOST, RPORT))
             s.send(data)
-            print("Test Case number: %d Sented !!! " %(TEST_CASE_ID ))
-            TEST_CASE_ID += 1 
+            print("Test Case number: %d Sented !!! " % (TEST_CASE_ID))
+            TEST_CASE_ID += 1
+            result = s.recv(1500)
+            # raw_input("result")
+            print("Server response:\n")
+            print(result)
             time.sleep(DELAY)
-        else :
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
-            print("Start Sent Test Case number: %d to the Target(%s,UDP: %d)!! " %(TEST_CASE_ID,RHOST,RPORT))
-            s.sendto(data, (RHOST,RPORT))
-            print("Test Case number: %d Sented !!! " %(TEST_CASE_ID ))
-            TEST_CASE_ID += 1 
- 
+        # UDP Socket
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # UDP
+            print("Start Sent Test Case number: %d to the Target(%s,UDP: %d)!! " % (TEST_CASE_ID, RHOST, RPORT))
+            s.sendto(data, (RHOST, RPORT))
+            print("Test Case number: %d Sented !!! " % (TEST_CASE_ID))
+            print("udp result~~~~~")
+
+            TEST_CASE_ID += 1
+
             time.sleep(DELAY)
-            
+
     except socket.error, (value, message):
         if s:
             s.close()
@@ -46,418 +63,167 @@ def go(data):
     s.close()
 
 
-    
-    # s.send(data)
-    # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # raw_input(bytes(MESSAGE, "utf-8"))
-    # s.sendto(bytes(rtp, "utf-8"), (RHOST, RPORT))
-    # s.sendto(rtp, (RHOST, RPORT))
-
-
-
 # Functions to Craft Patterns Starts Here
 
+"""
+-------Automatic generate payload Center-------
+--------------Advance mode---------------------
+"""
 
-def craft0(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Basic crafting 0)"
+
+def generate_payload_center():
+    print("[*] Start generate payload to fuzz the target !")
+    global TEST_CASE_ID,OUTPUT_DATA
+
+    s = "socket"
+
+    if SERVICETYPE == 'TCP':
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((RHOST, RPORT))
+    else:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # UDP
+
+
+    Csequence = 0
+    # custom payload class
+    rtsp_payload = Payload()
+
+    PARAMETERS = ['OPTIONS',
+                  'DESCRIBE',
+                  'SETUP',
+                  'PLAY',
+                  'TEARDOWN',
+                  'PAUSE']
+    # PARAMETERS = ['OPTIONS']
+    target_csv = createcsv()
+    with open(target_csv ,'w') as output:
+        writer = csv.writer(output)
+        #Write header
+        writer.writerow(['#','Payload','Response'])
+
+        while TEST_CASE_ID < STOPAFTER:
+
+            try:
+
+                print("------------------Test case %s Start------------------------"%(TEST_CASE_ID))
+                print("Start Time:%s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                print("Delay Time:%s/s"%(5))
+                # clone a clean format
+                payload_format = deepcopy(rtsp_payload.rtsp_payload_format)
+     
+                rand_payload_size = randint(STARTSIZE,ENDSIZE)
+                # rand_payload_size = int(200)
+                payload_format = rtsp_payload.random_generator_payload(payload_format, rand_payload_size,DEBUG)
+                # payload_format = rtsp_payload.specific_generator_payload(payload_format,"cseq",rand_payload_size)
+                # payload_format = rtsp_payload.specific_generator_payload(payload_format,"auth",rand_payload_size)
+                if Csequence > 100:
+                    Csequence = 0
+                else:
+                    Csequence += 1
+
+                rand_method = choice(PARAMETERS)
+                index = randint(0, 1)
+
+                payload = advance_payload_generator(method=rand_method, index=index, Cseq=Csequence,
+                                                    payload_format=payload_format)
+                if SERVICETYPE == 'TCP':
+                    s.send(payload)
+                else:
+                    s.sendto(payload)
+
+                print("[-->]Advance Fuzzing Test case Sented! \nPayload is :\n" + payload)
+
+                result = s.recv(1500)
+                if result:
+                    # while result:
+                    result = result
+                    print("[<--]Server Response:" + result)
+
+                else:
+                    result = '[<--]Server no response:!!!\n'
+                    print("[<--]Server no response:!!!\n")
+                buff_log = [TEST_CASE_ID,payload,result]
+                print("End Time:%s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                print("------------------Test case %s End------------------------" % (TEST_CASE_ID))
+                TEST_CASE_ID += 1
+                # Write log to csv
+                writer.writerow(buff_log)
+                # DELAY
+                time.sleep(DELAY)
+
+            except KeyboardInterrupt:
+                sys.exit()
+            except socket.error, exc:
+                print "[*]Caught exception socket.error : %s" % exc
+                # create socket
+                s.close()
+                if SERVICETYPE == 'TCP':
+
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.connect((RHOST, RPORT))
+                else:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # UDP
+
+
+"""
+Advace payload generator
+"""
+
+def advance_payload_generator(method, index, Cseq=1, payload_format=""):
+
+    url = RTSP_TARGETURL
+    slash = ""
+    header_url = url
+    # if method == "SETUP":
+    #     header_url = url + '/track' + index
+    #     slash = "/"
+    #     url += slash
+    # if method == "PLAY":
+    #     slash = "/"
+    #     url += slash
+    #     header_url += slash
+
     buff = ''
-    buff += focus  # OPTIONS AAAAAAAAAAAAAAAAA\r\n
-    buff += ''
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
+    buff += '{method}{0[0]} {0[1]} {url}{0[2]} {0[3]} RTSP/1.0{0[4]}\r\n'.format(payload_format['header'],
+                                                                                 method=method, url=header_url)
+    buff += 'CSeq: {0[0]}{sequence_number}{0[1]} \r\n'.format(payload_format['cseq'], sequence_number=Cseq)
+
+    # RTSP_AUTHORIZATION setting
+    if RTSP_AUTHORIZATION == 'Y':
+        response = computeKey(method=method, nonce=RTSP_NONCE, username=RTSP_USERNAME, realm=RTSP_REALM,
+                          password=RTSP_PASSWORD, url=url)
+
+        buff += 'Authorization: {0[0]}Digest {0[1]}username="{username}", {0[2]}realm="{realm}", {0[3]}nonce="{nonce}", {0[4]}uri="{url}", {0[5]}response="{response}" {0[6]}\r\n'.format(
+            payload_format['auth'], username=RTSP_USERNAME,realm=RTSP_REALM, url=url,nonce=RTSP_NONCE, response=response)
+    
+    
+    buff += "User-Agent: {0[0]}LibVLC/3.0.4 (LIVE555 Streaming Media v2016.11.28){0[1]}\r\n".format(
+        payload_format['agent'])
+
+    if method == 'DESCRIBE':
+        buff += 'Accept: application / sdp\r\n'
+
+    if method == 'SETUP':
+        if index == "1":
+            buff += 'Transport:{0[0]}RTP/AVP/TCP{0[1]};unicast{0[2]};interleaved=0-1{0[3]}\r\n'.format(
+                payload_format['transport'])
+
+        elif index == "2":
+            buff += 'Transport:RTP/AVP/TCP{0[0]};unicast{0[1]};interleaved=2-3{0[2]}\r\n'.format(
+                payload_format['transport'])
+        buff += 'SESSION: {0[0]}{session}{0[1]}\r\n'.format(payload_format['session'], session=SESSION)
+
+    if method == 'PLAY':
+        buff += 'SESSION: {0[0]}{session}{0[1]}\r\n'.format(payload_format['session'], session=SESSION)
+        buff += END
+        buff += 'Range: {0[0]}npt=0.000{0[1]}-{0[2]}\r\n'.format(payload_format['range'])
+
     buff += END
-    go(buff)
+    return buff
 
 
-def craft1(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Basic crafting 1)"
-    buff = ''
-    buff += focus  # OPTIONS rtsp://192.168.56.1/xpAAAAAAAAAAAAAAAAA RTSP/1.0
-    buff += ' '  # CSeq: 1
-    # User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 1'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
 
 
-def craft2(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Basic crafting 2)"
-    buff = ''
-    buff += focus  # OPTIONS rtsp://192.168.56.1/xp RTSP/1.0
-    buff += ' '  # CSeq: 1
-    # User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)AAAAAAAAAAAAAAAAAAAAAAAAA
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 1'
-    buff += END
-    buff += 'User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)'
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft3(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Basic crafting 3)"
-    buff = ''
-    buff += focus  # OPTIONS AAAAAAAAAAAAAAAAAAAAAA RTSP/1.0
-    buff += ' '  # CSeq: 1
-    # User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 1'
-    buff += END
-    buff += 'User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)'
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft4(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Basic crafting 4)"
-    buff = ''
-    buff += focus  # OPTIONS rtsp://192.168.56.1/xp RTSP/1.0
-    buff += ' '  # CSeq: AAAAAAAAAAAAAAAAAAAAAAAAA
-    # User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: '
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += 'User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)'
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-# This fumction will always accept Describe as focus parameter and Sequence parameter will be always 2
-def craft5(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 1)"
-    buff = ''
-    buff += focus  # DESCRIBE rtsp://192.168.56.1/xp RTSP/1.0
-    buff += ' '  # CSeq: 2
-    buff += 'rtsp://'  # Accept: application/sdpAAAAAAAAAAAAAAAAAAA
-    # User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 2'
-    buff += END
-    buff += 'Accept: '
-    buff += 'application/sdp'
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-# SETUP rtsp://server.com:554/xp/trackID=0 RTSP/1.0
-# CSeq: 3
-# Transport: RTP/AVP;unicast;client_port=36142-36143
-# User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-
-
-def craft6(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 2)"
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 3'
-    buff += END
-    buff += 'Transport: '
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += '/'
-    buff += 'AVP;unicast;client_port=36142-36143'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft7(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 3)"
-    buff = ''
-    buff += focus  # Transport: RTP/AAAAAAAA;unicast;client_port=36142-36143
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 3'
-    buff += END
-    buff += 'Transport: RTP/'
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += ';'
-    buff += 'unicast;client_port=36142-36143'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft8(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 4)"
-    buff = ''  # Transport: RTP/AVP;AAAAAAAAAAAAAAA;client_port=36142-36143
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 3'
-    buff += END
-    buff += 'Transport: RTP/AVP;'
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += ';client_port=36142-36143'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft9(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 5)"
-    buff = ''  # Transport: RTP/AVP;unicast;client_port=AAAAAAAAAAAAAAAAAAAAAAAAAA-36143
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 3'
-    buff += END
-    buff += 'Transport: RTP/AVP;unicast;client_port='
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += '-36143'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-
-def craft10(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 6)"
-    buff = ''  # Transport: RTP/AVP;unicast;client_port=36142-AAAAAAAAAAAAAAAAAAAAAAAAAAA
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 3'
-    buff += END
-    buff += 'Transport: RTP/AVP;unicast;client_port=36142-'
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-# GET_PARAMETER rtsp://server.com:554/xp RTSP/1.0
-# CSeq: 6
-# Session: e539b3f49ccf77ea
-# User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-
-
-def craft11(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 7)"
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 6'
-    buff += END
-    buff += 'Session: '
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-# TEARDOWN rtsp://server.com:554/xp RTSP/1.0
-# CSeq: 7
-# Session: e539b3f49ccf77ea
-# User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-
-
-def craft12(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 8)"
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 7'
-    buff += END
-    buff += 'Session: '
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-
-# PLAY rtsp://server.com:554/xp RTSP/1.0
-# CSeq: 5
-# Session: e539b3f49ccf77ea
-# Range: npt=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-# User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-
-
-def craft13(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 8)"
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 7'
-    buff += END
-    buff += 'Session: '
-    buff += SESSION
-    buff += END
-    buff += 'Range: npt='
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-# PLAY rtsp://server.com:554/xp RTSP/1.0
-# CSeq: 5
-# Session: e539b3f49ccf77ea
-# Range: AAAAAAAAAAAAAAAAAAAAAAA=0.000-
-# User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)
-
-
-def craft14(focus, size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (Advanced crafting 8)"
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 7'
-    buff += END
-    buff += 'Session: '
-    buff += SESSION
-    buff += END
-    buff += 'Range: '
-    if msfpat == "ON":
-        buff += createpattern(size)
-    else:
-        buff += junk*int(size)
-    buff += '=0.000-'
-    buff += END
-    buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    buff += END
-    buff += "\n"
-    go(buff)
-# Clear the previous Log file
-
-
-def clearlog():
-    cl = open('LOG.TXT', 'w')
-    cl.write("")
-    cl.close()
 # Append the buffer size in LOG.TXT
 
 
@@ -468,200 +234,47 @@ def bufflen(bl):
     f.write(bl)
     f.write("\nRequest :\n")
     f.close()
+def createcsv(): #將結果寫入成CSV檔，每一個csv檔結果
+    outputRoute = './output'
+    output_path = outputRoute 
+    if not os.path.exists(output_path): #在這做if查詢, 確定沒有同名的檔案再建立
+        os.makedirs(output_path) #利用os.makedirs()產生資料夾
 
-# Start Basic Crafting
+    target_csv = output_path + "/RTSP_Result.csv"
+    return target_csv
 
+def writecsv(data): #將結果寫入成CSV檔，每一個csv檔結果
+    # input('hi')
+    #outputRoute Default Path: ./output
+    with open(output_path + '/' + target_csv ,'wb') as output:
 
-def start():
-    PARAMETERS = ['OPTIONS',
-                  'DESCRIBE',
-                  'SETUP',
-                  'PLAY',
-                  'GET_PARAMETER',
-                  'TEARDOWN',
-                  'PAUSE']
-    t = len(PARAMETERS)
-    for i in range(0, t):
-        line = PARAMETERS[i]
-        STS = STARTSIZE
-        EDS = ENDSIZE
-        STEP = STEPSIZE
-        div = EDS/STEP
-        line = line.replace("\n", "")
-        for i in range(0, div):
-            bufflen(STS)
-            # print("[*] Start ")
-            craft0(line, STS)
-            craft1(line, STS)
-            craft2(line, STS)
-            craft3(line, STS)
-            craft4(line, STS)
-            time.sleep(DELAY)
-            STS = STS+STEP
-# Start Advanced Crafting
+    # output = open(outputRoute + '\\' + target_csv ,'w',encoding = 'utf-8')
+        writer = csv.writer(output)
+        #Write header
+        writer.writerow('#,Payload,Response\n')
 
+        #編號,Payload,Response
+        writer.writerow(data)
+        # raw_input(output_path + '/' + target_csv)
+        output.close()
 
-def startadvcraft():
-    STS = STARTSIZE
-    EDS = ENDSIZE
-    STEP = STEPSIZE
-    div = EDS/STEP
-    for j in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        craft5("DESCRIBE", STS)
-        STS = STS+STEP
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for k in range(0, div):
-        bufflen(STS)
-        craft6("SETUP", STS)
-        craft7("SETUP", STS)
-        craft8("SETUP", STS)
-        craft9("SETUP", STS)
-        craft10("SETUP", STS)
-        STS = STS+STEP
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for l in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        craft11("GET_PARAMETER", STS)
-        STS = STS+STEP
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for m in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        craft12("TEARDOWN", STS)
-        STS = STS+STEP
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for n in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        craft13("PLAY", STS)
-        STS = STS+STEP
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for o in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        craft14("PLAY", STS)
-        STS = STS+STEP
-
-
+# create Payload Pattern
 def createpattern(length):
     length = int(length)
     data = ''.join(tuple(islice(chain.from_iterable(product(
         string.ascii_uppercase, string.ascii_lowercase, string.digits)), length)))
     return data
 
-def start_fuzz():
-    STS = STARTSIZE
-    EDS = ENDSIZE
-    STEP = STEPSIZE
-    div = EDS/STEP
-
-    STS = STARTSIZE
-    STEP = STEPSIZE
-    for n in range(0, div):
-        STEP = STEPSIZE
-        bufflen(STS)
-        # craft6("SETUP",STS)
-        method_setup("SETUP", STS)
-        STS = STS+STEP
-
-def method_options():
-    buff = ''
-    buff += 'OPTIONS '  # OPTIONS AAAAAAAAAAAAAAAAA\r\n
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 6'
-    buff += END
-    buff += 'Authorization: Digest username="admin", realm="RTSP", nonce="0000040dY892418598785d2a2304a74adf22f6098f2792", uri="rtsp://192.168.1.56:554/stream0", response="68ddacc4e5411fc6277d2995c9b73fbe"\r\n'
-    buff += "User-Agent: LibVLC/3.0.4 (LIVE555 Streaming Media v2016.11.28)\r\n"
-    buff += END
-    go(buff)
-
-def method_setup(focus,size):
-    print "[*]  -> Fuzzing ", focus, "Fuzzing size set to ", size, " (fuzzing SETUP METHOD)"
-    # buff = ''
-    # buff += focus
-    # buff += ' '
-    # buff += 'rtsp://'
-    # buff += RHOST
-    # buff += '/'
-    # buff += SERVERPATH
-    # buff += ' RTSP/1.0'
-    # buff += END
-    # buff += 'CSeq: 3'
-    # buff += END
-    # buff += 'Transport: '
-    # if msfpat == "ON":
-    #     buff += createpattern(size)
-    # else:
-    #     buff += junk*int(size)
-    # buff += '/'
-    # buff += 'AVP;unicast;client_port=36142-36143'
-    # buff += END
-    # buff += "User-Agent: VLC media player (LIVE555 Streaming Media v2010.02.10)"
-    # buff += END
-    # buff += "\n"
-    # go(buff)
-
-    # focus = 'SETUP'
-    # key = computeKey()
-    buff = ''
-    buff += focus
-    buff += ' '
-    buff += 'rtsp://'
-    buff += RHOST
-    buff += '/'
-    buff += SERVERPATH
-    buff += ' RTSP/1.0'
-    buff += END
-    buff += 'CSeq: 7'
-    buff += END
-    buff += 'Authorization: Digest username="admin", realm="RTSP", nonce="0000040dY892418598785d2a2304a74adf22f6098f2792", uri="rtsp://192.168.1.56:554/stream0", response="c00ad57f9dcc4485f404d31b844665c2"\r\n'
-    # buff += "User-Agent: LibVLC/3.0.4 (LIVE555 Streaming Media v2016.11.28)"
-    # buff += "User-Agent: "
-    # buff += END
-    buff += 'Transport: RTP/AVP;unicast;client_port=49702-49703'
-    # buff += 'Session: '
-    # buff += SESSION
-    # buff += END
-    # buff += "Range: npt=0.000-\r\n"
-    buff += END
-    buff += END
-
-    # buff += 'Range: '
-    # if msfpat == "ON":
-    #     buff += createpattern(size)
-    # else:
-    #     buff += junk*int(size)
-    # buff += '=0.000-'
-    # buff += END
-    # buff += "\n"
-    # raw_input('sss')
-    go(buff)
-def computeKey():
-    username = 'admin'
-    realm = 'RTSP'
-    password = 'pass'
-    nonce = '0000040dY892418598785d2a2304a74adf22f6098f2792'
-    method = 'SETUP'
-    url = 'rtsp://192.168.1.56:554/stream0/'
+# comupute message digest authorization response key
+def computeKey(method="", nonce="", username="", realm="", password="", url=""):
+    if method is None:
+        print("[*] Error , RTSP request needed a method")
 
     m1 = hashlib.md5(username + ":" + realm + ":" + password).hexdigest()
     m2 = hashlib.md5(method + ":" + url).hexdigest()
     response = hashlib.md5(m1 + ":" + nonce + ":" + m2).hexdigest()
-    raw_input(response)
     return response
+
 
 # Global Start
 config = ConfigParser()
@@ -678,6 +291,15 @@ SESSION = config.get('rtspfuzz', 'SESSION')
 junk = config.get('rtspfuzz', 'JUNK')
 msfpat = config.get('rtspfuzz', 'MSFPATTERN')
 SERVICETYPE = config.get('rtspfuzz', 'TYPE')
+# RTSP authorization
+RTSP_AUTHORIZATION = config.get('rtspfuzz','AUTHORIZATION')
+RTSP_TARGETURL = config.get('rtspfuzz', 'TARGETURL')
+RTSP_USERNAME = config.get('rtspfuzz', 'USERNAME')
+RTSP_PASSWORD = config.get('rtspfuzz', 'PASSWORD')
+RTSP_REALM = config.get('rtspfuzz', 'REALM')
+RTSP_NONCE = config.get('rtspfuzz', 'NONCE')
+# DEBUG mode
+DEBUG = config.get('rtspfuzz', 'DEBUG')
 
 # Little Bit Typecasting
 RPORT = int(RPORT)
@@ -686,39 +308,33 @@ ENDSIZE = int(ENDSIZE)
 STEPSIZE = int(STEPSIZE)
 STOPAFTER = int(STOPAFTER)
 DELAY = int(DELAY)
-# raw_input(STOPAFTER)
-print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
-print "[*]                      WELCOME                   [*]"
-print "[*]                RTSPfuzzer version 1.0          [*]"
-print "[*]                rtsp Protocol fuzzer            [*]"
-print "[*]                Author :Leon Zhang              [*]"
-print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
-print "[*]              Your Preferences                     "
-print "[*] Target Host :", RHOST, "on PORT", RPORT
-print "[*] Start Size :", STARTSIZE
-print "[*] End Size :", ENDSIZE
-print "[*] Step Size :", STEPSIZE
-print "[*] Time Delay between two requests :", DELAY, "Sec"
-print "[*] Server path rtsp://", RHOST, "/", SERVERPATH
-print "[*] Session ID to use when required :", SESSION
-print "[*] Fuzzing with Metasploit Pattern :", msfpat
-print "[*]"
-print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
-raw_input("[*] If above information are correct Press Enter \nto start fuzzing if not then re-edit the rtsp.conf file _")
-if msfpat == "ON":
+# main function
+
+if __name__ == "__main__":
+    print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
+    print "[*]                      WELCOME                   [*]"
+    print "[*]                RTSPfuzzer version 1.0          [*]"
+    print "[*]                rtsp Protocol fuzzer            [*]"
+    print "[*]                Author :Leon Zhang              [*]"
+    print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
+    print "[*]              Your Preferences                     "
+    print "[*] Target Host :", RHOST, "on PORT", RPORT
+    print "[*] Start Size :", STARTSIZE
+    print "[*] End Size :", ENDSIZE
+    print "[*] Step Size :", STEPSIZE
+    print "[*] Time Delay between two requests :", DELAY, "Sec"
+    print "[*] Server path rtsp://", RHOST, "/", SERVERPATH
+    print "[*] Session ID to use when required :", SESSION
+    print "[*] Fuzzing with Metasploit Pattern :", msfpat
+    print "[*]"
+    print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
     print "[*] You are going to start fuzzing with Metasploit Pattern"
-    print "[*] This fuzzing process may take some extra time"
-    q = raw_input("[*] Are you sure(y/n)??")
-    if q == "n":
-        print "[*] Turning off Metasploit Pattern feature.."
-        msfpat = "OFF"
-clearlog()
-start()
-print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
-print "[*]                  Starting Advanced fuzzing with Specially Crafted requests               [*]"
-print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
-for i in range(10):
-    startadvcraft()
-# start_fuzz()
-print "[*] To see last successful request go to LOG.TXT file"
-print "[*] Exiting."
+    raw_input("Ready to Start? (ctrl + c to exit)")
+    print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
+    print "[*]                  Starting Advanced fuzzing with Specially Crafted requests               [*]"
+    print "[*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*][*]"
+
+    generate_payload_center()
+
+    print "[*] To see last successful request go to LOG.TXT file"
+    print "[*] Exiting."
